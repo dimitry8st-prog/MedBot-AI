@@ -106,26 +106,159 @@ medbot-ai/
 - **D** — Мнение экспертов, клинические случаи
 - **E** — Маркетинг, недоказанные утверждения (не использовать!)
 
-#### Приоритет в RAG поиске:
+#### Динамическая актуализация медицинских данных (КРИТИЧНО):
+
+**Важнейший принцип:** Медицинские знания устаревают. Система ОБЯЗАНА работать с актуальными данными.
+
+**Правило 2-летнего окна актуальности:**
 
 ```python
-# Приоритет при ранжировании результатов поиска
-DOCUMENT_PRIORITY = {
-    "minzdrav": 1.5,      # Минздрав РФ — наивысший приоритет
-    "russian_protocol": 1.3,  # Российские протоколы
-    "international": 1.0,  # Международные источники (базовый)
-    "commercial": 0.5     # Коммерческие источники (низкий приоритет)
+from datetime import datetime, timedelta
+
+CURRENT_DATE = datetime.now()  # Системная дата как абсолютная точка отсчета
+RECENCY_WINDOW = timedelta(days=730)  # 2 года
+MIN_RELEVANT_DATE = CURRENT_DATE - RECENCY_WINDOW
+
+def is_document_actual(publication_year: int) -> bool:
+    """Проверка актуальности документа"""
+    return publication_year >= MIN_RELEVANT_DATE.year
+```
+
+**Алгоритм работы с медицинскими источниками:**
+
+1. **ТЕКУЩАЯ ДАТА как точка отсчета:**
+   - Используй системную дату `{current_date}` как абсолютную точку
+   - ЗАПРЕЩЕНО опираться на знания старше 2 лет от этой даты
+
+2. **ПРОВЕРКА НОЗОЛОГИИ перед формированием ответа:**
+   - Определи точную нозологию из запроса/документа
+   - Проверь наличие КР Минздрава РФ, утвержденных после `{current_date} - 2 года`
+   - Используй RAG поиск, НЕ память модели
+
+3. **ПРИОРИТЕТ АКТУАЛЬНЫХ КР:**
+   
+   **Если найдены актуальные КР (< 2 лет):**
+   ```
+   Согласно Клиническим рекомендациям Минздрава РФ 
+   "{название}" ({год} г., актуализация {дата}):
+   [содержание]
+   
+   Источник: КР Минздрава РФ, утв. {дата}, код документа {номер}
+   ```
+   
+   **Если последние КР старше 2 лет:**
+   ```
+   ⚠️ ВАЖНО: Актуальные Клинические рекомендации Минздрава РФ 
+   по данной нозологии отсутствуют с {год_последних_КР}.
+   
+   Анализ проведен с учетом:
+   - Международных консенсусов [NCCN/ESMO/AHA/ACC] 2024–2026 гг.
+   - Адаптация под российскую практику
+   - Доступные в РФ методы диагностики и лечения
+   
+   Рекомендуется уточнить актуальную тактику у профильного специалиста.
+   ```
+
+4. **ЗАПРЕТ НА УСТАРЕВШИЕ ПРОТОКОЛЫ:**
+   - ❌ Не ссылаться на документы, отмененные после `{current_date} - 2 года`
+   - ❌ Не использовать устаревшую терминологию из старых КР
+   - ✅ Если в запросе устаревшая терминология — корректировать в ответе:
+     ```
+     Примечание: Термин "{старый}" заменен в актуальных КР 
+     на "{новый}" (КР Минздрава РФ {год}).
+     ```
+
+5. **RAG-ПРОВЕРКА обязательна:**
+   - ВСЕГДА искать в RAG перед генерацией ответа
+   - НЕ выдумывать номера, годы или содержание КР
+   - Если в RAG нет актуальных КР — явно указать это в ответе
+
+**Бустинг с учетом актуальности:**
+
+```python
+def boost_by_source_and_recency(
+    score: float, 
+    source: str, 
+    publication_year: int,
+    current_year: int = CURRENT_DATE.year
+) -> float:
+    """
+    Комплексный бустинг: источник + актуальность
+    
+    Формула: base_score * source_priority * recency_penalty
+    """
+    # Приоритет по источнику
+    if "минздрав" in source.lower():
+        source_boost = 1.5  # +50%
+    elif "рф" in source.lower():
+        source_boost = 1.3  # +30%
+    elif any(x in source.lower() for x in ["nccn", "esmo", "aha", "esc"]):
+        source_boost = 1.0  # базовый
+    else:
+        source_boost = 0.8  # -20%
+    
+    # Штраф за устаревание (экспоненциальный)
+    age_years = current_year - publication_year
+    if age_years <= 2:
+        recency_penalty = 1.0  # актуально
+    elif age_years <= 5:
+        recency_penalty = 0.8  # немного устарело
+    elif age_years <= 10:
+        recency_penalty = 0.5  # сильно устарело
+    else:
+        recency_penalty = 0.2  # крайне устарело
+    
+    return score * source_boost * recency_penalty
+
+
+# Пример применения в RAG
+def search_with_actuality_boost(query: str, top_k: int = 10):
+    """Поиск с бустингом по актуальности"""
+    results = chromadb.search(query, top_k=top_k * 2)  # Берем больше для фильтрации
+    
+    # Применяем бустинг
+    for result in results:
+        result.score = boost_by_source_and_recency(
+            result.score,
+            result.metadata["source"],
+            result.metadata["publication_year"]
+        )
+    
+    # Переранжируем и возвращаем топ-K
+    results.sort(key=lambda x: x.score, reverse=True)
+    return results[:top_k]
+```
+
+**Детектирование устаревших терминов:**
+
+```python
+# Словарь устаревших → актуальных терминов
+DEPRECATED_TERMS = {
+    "инфаркт миокарда": {
+        "current": "острый коронарный синдром (ОКС)",
+        "note": "В КР Минздрава РФ 2023 используется более широкая классификация ОКС",
+        "kr_year": 2023
+    },
+    "церебральный инсульт": {
+        "current": "острое нарушение мозгового кровообращения (ОНМК)",
+        "note": "Терминология согласно КР Минздрава РФ 2024",
+        "kr_year": 2024
+    },
+    # ... расширять по мере появления новых КР
 }
 
-# В RAG Engine применять бустинг по источнику:
-def boost_by_source(score: float, source: str) -> float:
-    """Повышаем приоритет российских источников"""
-    if "минздрав" in source.lower() or "minzdrav" in source.lower():
-        return score * DOCUMENT_PRIORITY["minzdrav"]
-    elif "рф" in source.lower() or "россия" in source.lower():
-        return score * DOCUMENT_PRIORITY["russian_protocol"]
-    else:
-        return score * DOCUMENT_PRIORITY["international"]
+def check_terminology_actuality(text: str) -> list[dict]:
+    """Проверка терминологии на актуальность"""
+    warnings = []
+    for old_term, info in DEPRECATED_TERMS.items():
+        if old_term.lower() in text.lower():
+            warnings.append({
+                "old_term": old_term,
+                "current_term": info["current"],
+                "note": info["note"],
+                "kr_year": info["kr_year"]
+            })
+    return warnings
 ```
 
 ### 2. Разработка кода
