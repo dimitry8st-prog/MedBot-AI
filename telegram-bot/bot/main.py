@@ -22,6 +22,7 @@ BACKEND = ROOT / "backend"
 sys.path.insert(0, str(BACKEND))
 
 from app.core.config import settings  # noqa: E402
+from app.services.meta_response import is_meta_question, meta_answer  # noqa: E402
 
 logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
@@ -29,33 +30,32 @@ logging.basicConfig(
 )
 logger = logging.getLogger("medbot.telegram")
 
-DISCLAIMER = (
-    "⚠️ Данная информация носит справочный характер и не заменяет консультацию врача."
-)
+
+async def _reply_meta(update: Update) -> None:
+    text = meta_answer()
+    try:
+        await update.message.reply_text(text, parse_mode="Markdown")
+    except Exception:
+        await update.message.reply_text(text)
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text(
-        "MedBot AI — справочный ассистент для врачей.\n"
-        "Напишите медицинский вопрос, например:\n"
-        "«Какая первая линия терапии артериальной гипертензии?»\n\n"
-        f"{DISCLAIMER}"
-    )
+    await _reply_meta(update)
 
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text(
-        "Команды:\n"
-        "/start — приветствие\n"
-        "/help — помощь\n\n"
-        "Или просто отправьте вопрос текстом."
-    )
+    await _reply_meta(update)
 
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = (update.message.text or "").strip()
     if len(query) < 2:
         await update.message.reply_text("Напишите вопрос подробнее.")
+        return
+
+    # Мета-вопросы / приветствия — без RAG и без интернета
+    if is_meta_question(query):
+        await _reply_meta(update)
         return
 
     await update.message.chat.send_action("typing")
@@ -78,20 +78,28 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await update.message.reply_text(f"Не удалось получить ответ: {exc}")
         return
 
-    answer = data.get("answer") or "Пустой ответ"
-    sources = data.get("sources") or []
-    if sources:
-        top = sources[0]
-        answer += (
-            f"\n\nИсточник: {top.get('filename') or top.get('source')} "
-            f"(score={top.get('score')})"
-        )
+    answer = (data.get("answer") or "Пустой ответ").strip()
 
     # Telegram лимит ~4096 символов
     if len(answer) > 4000:
-        answer = answer[:3990] + "…"
+        lines = answer.splitlines()
+        source_tail = []
+        while lines and (
+            lines[-1].startswith("*Источник")
+            or lines[-1].startswith("Источник")
+            or lines[-1].startswith("_Ориентир")
+            or not lines[-1].strip()
+        ):
+            source_tail.insert(0, lines.pop())
+        head = "\n".join(lines)
+        tail = "\n".join(source_tail)
+        budget = 3990 - len(tail) - 2
+        answer = head[: max(0, budget)].rstrip() + "…\n\n" + tail
 
-    await update.message.reply_text(answer)
+    try:
+        await update.message.reply_text(answer, parse_mode="Markdown")
+    except Exception:
+        await update.message.reply_text(answer)
 
 
 def main() -> None:

@@ -81,3 +81,8 @@ Thumbs.db
 *.tmp
 *.bak
 *.swp
+
+# Local secrets
+*токен*
+*Токен*
+ТокенГИДХАБ.txt

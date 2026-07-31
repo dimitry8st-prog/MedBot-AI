@@ -1,0 +1,82 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color: #0f1c1a;
+  background: #f4faf7;
+  font-family: "Manrope", system-ui, sans-serif;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  overflow-x: hidden;
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes drift {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(12px, -10px, 0) scale(1.03);
+  }
+}
+
+@keyframes type-glow {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.animate-rise {
+  animation: rise-in 0.9s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.animate-rise-delay {
+  animation: rise-in 1s 0.15s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.animate-rise-late {
+  animation: rise-in 1.05s 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.hero-orb {
+  animation: drift 12s ease-in-out infinite;
+}
+
+.cursor-blink {
+  animation: type-glow 1.4s ease-in-out infinite;
+}
+
+.section-rule {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(15, 28, 26, 0.18), transparent);
+}

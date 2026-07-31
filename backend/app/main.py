@@ -59,6 +59,8 @@ class AskResponse(BaseModel):
     answer: str
     sources: List[Dict[str, Any]]
     disclaimer: str
+    source_origin: str = "rag"
+    source_label: str = ""
 
 
 @app.get("/api/v1/health")
@@ -129,6 +131,8 @@ def ask_endpoint(request: AskRequest) -> AskResponse:
         answer=result.answer,
         sources=result.sources,
         disclaimer=result.disclaimer,
+        source_origin=result.source_origin,
+        source_label=result.source_label,
     )
 
 

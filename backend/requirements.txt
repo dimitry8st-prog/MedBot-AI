@@ -32,6 +32,7 @@ transformers==4.37.2
 # LLM APIs
 anthropic==0.18.1  # Claude API
 httpx==0.26.0  # Для GigaChat API (прямые запросы)
+duckduckgo-search>=6.0.0  # веб-fallback без API-ключа
 
 # Document Processing
 pypdf2==3.0.1
