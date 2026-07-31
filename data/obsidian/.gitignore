@@ -1,0 +1,25 @@
+# Obsidian workspace (персональные настройки)
+.obsidian/workspace.json
+.obsidian/workspace-mobile.json
+
+# Obsidian cache
+.obsidian/workspace
+.obsidian/cache
+.trash/
+
+# System files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Temporary files
+*.tmp
+*.temp
+*~
+
+# Backup files
+*.backup
+*.bak
+
+# Logs
+*.log
